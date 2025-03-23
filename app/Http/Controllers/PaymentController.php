@@ -44,6 +44,47 @@ class PaymentController extends Controller
             'is_paid' => 'required|boolean',
         ]);
 
+        // Get the house_id from house_resident_id
+        $houseResident = DB::table('house_residents')
+            ->where('id', $validated['house_resident_id'])
+            ->first();
+
+        if (!$houseResident) {
+            return response()->json([
+                'message' => 'Data penghuni rumah tidak ditemukan',
+            ], 404);
+        }
+
+        $houseId = $houseResident->house_id;
+
+        // Check if a payment for this house, period and type already exists
+        $existingPayment = DB::table('payments')
+            ->join('house_residents', 'payments.house_resident_id', '=', 'house_residents.id')
+            ->where('house_residents.house_id', $houseId)
+            ->where('payments.payment_type', $validated['payment_type'])
+            ->where('payments.is_paid', true)
+            ->where('payments.period_end', '>=', now())
+            ->orderBy('payments.period_end', 'desc')
+            ->first();
+
+        if ($existingPayment) {
+            return response()->json([
+                'message' => 'Pembayaran masih aktif untuk rumah ini',
+                'errors' => [
+                    'period_start' => ['Pembayaran ' . ($validated['payment_type'] == 'security' ? 'keamanan' : 'kebersihan') . ' masih aktif hingga ' . $existingPayment->period_end],
+                ]
+            ], 422);
+        }
+
+        if ($existingPayment && $validated['is_paid'] == true) {
+            return response()->json([
+                'message' => 'Pembayaran untuk rumah ini pada periode tersebut sudah dilakukan',
+                'errors' => [
+                    'period_start' => ['Pembayaran ' . ($validated['payment_type'] == 'security' ? 'keamanan' : 'kebersihan') . ' untuk rumah ini pada periode ini sudah dilakukan'],
+                ]
+            ], 422);
+        }
+
         $payment = Payment::create($validated);
         return response()->json($payment, 201);
     }
